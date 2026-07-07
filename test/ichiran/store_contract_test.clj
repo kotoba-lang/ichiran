@@ -1,0 +1,60 @@
+(ns ichiran.store-contract-test
+  "Store contract against both backends — proving MemStore ≡ DatomicStore makes
+  'swap the SSoT for Datomic / kotoba-server' a config change, not a rewrite."
+  (:require [clojure.test :refer [deftest is testing]]
+            [ichiran.model :as model]
+            [ichiran.store :as store]))
+
+(defn- backends [] [["MemStore" (store/seed-db)] ["DatomicStore" (store/datomic-seed-db)]])
+
+(deftest read-parity
+  (doseq [[label s] (backends)]
+    (testing label
+      (is (= "gftdcojp/cloud-itonami" (:repo (store/artifact s "act-finance-q3"))))
+      (is (= "Q3 財務集計" (:title (store/artifact s "act-finance-q3"))))
+      (is (= ["act-finance-q3" "act-headcount"] (mapv :id (store/all-artifacts s))))
+      (is (nil? (store/artifact s "act-missing")))
+      (is (nil? (store/draft-of s "act-finance-q3"))))))
+
+(deftest write-and-ledger-parity
+  (doseq [[label s] (backends)]
+    (testing label
+      (store/record-datom! s {:kind :draft :id "act-finance-q3"
+                              :value {:workbook-id "act-finance-q3-tally" :status :proposed :confidence 0.9}})
+      (is (= :proposed (:status (store/draft-of s "act-finance-q3"))))
+      (is (= 0.9 (:confidence (store/draft-of s "act-finance-q3"))))
+      (store/record-datom! s {:kind :draft :id "act-finance-q3" :value {:status :published}})
+      (is (= :published (:status (store/draft-of s "act-finance-q3"))) "merge updates status")
+      (is (= 0.9 (:confidence (store/draft-of s "act-finance-q3"))) "merge preserves other fields")
+      (store/append-ledger! s {:op :a :disposition :record})
+      (store/append-ledger! s {:op :b :disposition :commit})
+      (is (= [:record :commit] (mapv :disposition (store/ledger s)))))))
+
+(deftest seed-upserts-per-id-does-not-wipe-existing-artifacts
+  (testing "seed! is an idempotent per-id upsert (Store protocol contract), NOT a
+            wholesale replace of :artifacts — re-seeding with one new artifact must
+            leave every previously-seeded artifact untouched, on both backends
+            (ADR-2607062030 amendment: this is the bug class teian's MemStore.seed!
+            originally had — ichiran's seed! is a per-id upsert from the start,
+            never a wholesale merge of the whole :artifacts submap)"
+    (doseq [[label s] (backends)]
+      (testing label
+        (is (= ["act-finance-q3" "act-headcount"] (mapv :id (store/all-artifacts s)))
+            "sanity: pre-seeded demo data present before either seed! call")
+        (store/seed! s {:artifacts {"act-new-a" (model/artifact "act-new-a"
+                                                  "gftdcojp/cloud-itonami" "A")}})
+        (is (= ["act-finance-q3" "act-headcount" "act-new-a"] (mapv :id (store/all-artifacts s)))
+            "seeding with A must not drop act-finance-q3/act-headcount")
+        (store/seed! s {:artifacts {"act-new-b" (model/artifact "act-new-b"
+                                                  "gftdcojp/cloud-itonami" "B")}})
+        (is (= ["act-finance-q3" "act-headcount" "act-new-a" "act-new-b"]
+               (mapv :id (store/all-artifacts s)))
+            "seeding with B must not drop act-finance-q3/act-headcount/act-new-a")))))
+
+(deftest datomic-empty-store-usable
+  (let [s (store/datomic-store)]
+    (is (nil? (store/artifact s "nope")))
+    (is (= [] (store/all-artifacts s)))
+    (store/record-datom! s {:kind :artifact :id "x"
+                            :value {:id "x" :repo "r/r" :title "t" :status :open}})
+    (is (= "r/r" (:repo (store/artifact s "x"))))))

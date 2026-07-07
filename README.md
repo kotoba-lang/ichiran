@@ -1,49 +1,136 @@
 # ichiran
 
-一覧 — a future **tally/rollup-sheet generation actor**: it will read the
-itonami append-only ledger and generate/maintain aggregate report workbooks
-(`kotoba-lang/sheets` EDN model — workbook/tab/cell/formula/named-range/chart)
-as a sealed-intelligence ⊣ independent-governor StateGraph, the same pattern as
-[`kekkai`](../kekkai) and [`tayori`](../tayori). See
-[ADR-2607062030](../../../90-docs/adr/2607062030-kotoba-lang-ichiran-tally-scaffold.md)
-for full context.
+一覧 — a **tally/rollup-sheet generation control plane**: a tally-LLM ⊣
+TallyGovernor StateGraph that drafts aggregate report workbooks
+(`kotoba-lang/sheets` EDN — workbook/tab/cell/formula/named-range/chart) from
+itonami ledger facts, but never distributes anything itself. The actor is
+**propose → draft only**: a draft commits as data (a *casual commit* —
+phase-gated auto-approval is fine, it's just a proposed tally workbook sitting
+there for review); actually publishing a tally (`:tally/publish`) is a *PR
+merge* — it is **always a human call**, regardless of phase.
 
-> **Status: proposed, scaffold-only.** This repo currently reserves the name,
-> registers the dependency shape, and records the future design intent. There
-> is **no governor/StateGraph implementation yet** — `src/ichiran/*.cljc` are
-> docstring-only stubs. Real implementation is an explicit follow-up, not part
-> of this scaffold.
+Built on this workspace's
+[`langgraph`](https://github.com/kotoba-lang/langgraph) StateGraph runtime —
+the same pattern as [`teian`](../teian) (deck-LLM ⊣ BriefingGovernor,
+briefing-drafting) and [`koyomi`](../koyomi) (schedule-LLM ⊣
+ComplianceGovernor, schedule-sharing). Here it is **tally-LLM ⊣
+TallyGovernor**.
 
-## Future design
+> Charter: **(G1)** propose → draft only, no direct actuation — the actor
+> writes proposed workbook content, a human turns it into an outbound
+> publish; **(G2)** publishing a tally is **always a human call**
+> (high-stakes), independent of rollout phase; **(G3)** kotoba-native —
+> artifact/draft facts are durable EAVT ground facts, drafts are transient
+> until committed; **(G4)** ichiran holds `kotoba-lang/sheets` EDN verbatim as
+> draft content — it does not reimplement the workbook/tab/cell/formula/chart
+> data model.
 
-From ADR-2607062030 (candidates, not yet implemented):
+## The core contract
 
-- **TallyGovernor** HARD invariant candidates — same shape as teian's
-  governor: `no-actuation` (the actor proposes report content, it never
-  publishes/distributes on its own); `redaction-required` (financial rollups
-  are high-sensitivity and must pass a redaction check before any release);
-  `tenant-isolation` (a rollup for one tenant must never leak another
-  tenant's ledger facts into its cells/formulas).
-- **TallyPort** protocol candidates — `fetch-workbook` (read the current
-  `sheets.model` workbook for a tally), `propose-revision!` (LLM-drafted cell/
-  formula/chart changes as a proposal, not a commit), `publish!` (governor-
-  approved only — the only path that makes a revision visible).
+```
+artifact facts (the itonami activity a tally is drafted for)
+        │  ingest = durable ground facts (observe; always on)
+        ▼
+   ┌───────────┐  proposal: draft /  ┌─────────────────────┐
+   │ tally-LLM  │  publish            │  TallyGovernor       │  (independent system)
+   │ (sealed)   │ ──────────────────▶ │  missing-subject ·   │
+   └───────────┘  + cited facts       │  no-actuation ·      │
+                                      │  redaction · tenant  │
+                                      └──────────┬───────────┘
+                            commit ◀─────────────┼───────────▶ hold (missing-
+                     (draft: casual commit,   escalate           subject /
+                      auto ok at phase≥2;         │              redaction /
+                      publish: ALWAYS here) ─▶ 人間 承認         tenant-mismatch;
+                                            (publishは常に人間)   un-overridable)
+```
 
-## Layout
-
-| Path | Role |
-|---|---|
-| `src/ichiran/model.cljc` | stub — future: `sheets.model` workbook draft type for itonami-ledger rollups |
-| `src/ichiran/governor.cljc` | stub — future: TallyGovernor (`no-actuation` / `redaction-required` / `tenant-isolation`) |
-| `src/ichiran/tallyport.cljc` | stub — future: TallyPort protocol (`fetch-workbook` / `propose-revision!` / `publish!`) |
-| `test/ichiran/smoke_test.clj` | loads the three stubs and asserts the placeholder contract |
+**The actor never publishes a tally workbook the TallyGovernor would reject,
+and tally-LLM never actuates directly.** HARD invariants force **hold** (a
+human cannot approve past a draft for an unregistered activity, a missing
+redaction on a sensitive cite, or a workbook declared for the wrong tenant);
+a clean publish still routes to a human.
 
 ## Run
 
 ```bash
-clojure -M:test    # smoke test only — no sim yet
-clojure -M:lint     # clj-kondo (errors fail)
+clojure -M:dev:run     # drive: draft → publish through the actor
+clojure -M:dev:test    # the propose-only contract + store parity + CACAO crypto
+clojure -M:lint        # clj-kondo (errors fail)
 ```
 
-There is no `:run` alias yet — there is no `sim.cljc` to run until the actor
-is implemented.
+Demo: register an artifact (observe → ground fact) → draft a Q3 財務集計
+tally for a known, clean-tenant artifact (phase 3 → clean → auto-commits, no
+interrupt) → publish it (**always** human sign-off, even though clean) →
+phase-0 disables drafting entirely → prints the tally-generation audit ledger
+→ swaps to `DatomicStore` with identical results.
+
+## Layout
+
+| File | Role |
+|---|---|
+| `src/ichiran/model.cljc` | pure **draft**/**artifact** data shapes — `content` is verbatim `kotoba-lang/sheets` EDN, never ichiran's own representation |
+| `src/ichiran/store.cljc` | **Store** protocol — `MemStore` ‖ `DatomicStore` (`langchain.db`, swappable to Datomic Local / kotoba-server) + append-only **tally-generation audit ledger** |
+| `src/ichiran/policy.cljc` | pure checks (sensitive-cite redaction requirement · tenant mismatch) — shared by governor & tally-LLM, no I/O |
+| `src/ichiran/coordllm.cljc` | **tally-LLM Advisor** — `mock-advisor` ‖ `llm-advisor` (`langchain.model`); draft/publish proposals |
+| `src/ichiran/governor.cljc` | **TallyGovernor** — missing-subject (independent, unconditional) · no-actuation · redaction-required · tenant-isolation · high-stakes |
+| `src/ichiran/phase.cljc` | **Phase 0→3** — ingest-only → assisted → assisted-draft → supervised (publish always human) |
+| `src/ichiran/operation.cljc` | **TallyActor** — langgraph StateGraph; ingest vs assess flows |
+| `src/ichiran/tallyport.cljc` | **TallyTarget** port (`fetch-workbook`/`propose-revision!`/`publish!`) + `mock-tallyport` (best-effort `sheets.wire` Transit export + injected Distributor fn) |
+| `src/ichiran/cacao.clj` | agent-side **CACAO self-mint** (JVM Ed25519 + did:key + CBOR; per-actor key) |
+| `src/ichiran/kotoba.clj` | wire `DatomicStore` to a kotoba-server pod (kotobase.net XRPC) |
+| `src/ichiran/query.cljc` | pure status lookups (`draft-status`/`published?`) for callers that don't want to run the actor |
+| `src/ichiran/sim.cljc` | demo driver |
+| `src/ichiran/cli.clj` | minimal JVM status-check entrypoint |
+| `test/ichiran/*_test.clj` | propose-only contract · store parity (Mem≡Datomic) · CACAO |
+
+## TallyTarget → real backend (injection)
+
+`ichiran.tallyport/mock-tallyport` is the runnable, deterministic default —
+no network/creds. `publish!` exports the workbook via `kotoba-lang/sheets`'s
+`sheets.wire/workbook-envelope` (Kotoba Transit JSON) — best-effort; any
+encoding failure degrades to no envelope bytes rather than throwing — and
+always calls an injected `:distribute-fn` once per delivery. A live
+email/Slack/BI-tool Distributor is **not shipped here** (ADR Consequences) —
+inject your own.
+
+```clojure
+;; actor issues its own key, self-mints CACAO (same pattern as kekkai/teian/koyomi)
+(require '[ichiran.kotoba :as k] '[ichiran.cacao :as cacao] '[clojure.data.json :as json])
+(def me    (cacao/load-or-create-identity! ".ichiran/identity.edn"))
+(def store (k/kotoba-store {:url "https://kotobase.net"
+                            :json-write json/write-str
+                            :json-read #(json/read-str % :key-fn keyword)
+                            :identity me}))
+
+;; a real tally-LLM + a real Distributor
+(require '[langchain.model :as model] '[ichiran.operation :as op]
+         '[ichiran.coordllm :as coordllm] '[ichiran.tallyport :as tallyport])
+(op/build store
+  {:advisor (coordllm/llm-advisor (model/anthropic-model {:api-key … :http-fn … :json-write … :json-read …}))
+   :tallyport (tallyport/mock-tallyport (atom {}) my-real-distribute-fn)})
+```
+
+An unparseable/hallucinating LLM response falls to confidence 0 / noop, and
+**TallyGovernor always hold/escalates** it (no path from a malformed LLM
+response to an actual publish).
+
+## cloud-itonami consumption
+
+See `90-docs/adr/2607062030-kotoba-lang-ichiran-tally-scaffold.md`. Add
+`io.github.kotoba-lang/ichiran {:local/root "../../kotoba-lang/ichiran"}` to
+`deps.edn` for in-process use, or read via `ichiran.kotoba/kotoba-store`
+against a kotobase.net graph. A `cloud_itonami.workspace` projection layer
+translating an itonami-ledger rollup request into a `:tally/draft` request,
+and the `:tally/publish` human approval riding on `cloud_itonami.approval`
+(ADR-0005), is tracked as a separate follow-up — out of scope here.
+
+## Status
+
+Runnable + fully tested. Store is `:db-api` driven — `MemStore ≡
+DatomicStore(langchain.db) ≡ kotoba-store(kotobase.net)` on the same
+contract, with a per-id-upsert `seed!` from the start (never a wholesale
+`:artifacts` replace). CACAO self-issuance is offline-verified.
+`TallyTarget`'s Transit export path is structurally complete but
+**live-untested** — same known state kekkai/teian/koyomi ship in; a real
+Distributor (email/Slack/BI-tool/etc) is not shipped here at all (inject your
+own).
