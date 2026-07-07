@@ -8,9 +8,22 @@
             [langgraph.graph :as g]
             [ichiran.store :as store]
             [ichiran.coordllm :as coordllm]
+            [ichiran.tallyport :as tallyport]
             [ichiran.operation :as op]))
 
 (defn- fresh [] (let [s (store/seed-db)] [s (op/build s)]))
+
+(defn- fresh-with-tallyport
+  "Like `fresh`, but wires a mock-tallyport whose distribute-fn appends every
+  {:activity :target :content :envelope?} call to the returned atom — so a
+  test can assert on exactly what tallyport/publish! delivered, not just on
+  the store's post-hoc state."
+  []
+  (let [s (store/seed-db)
+        distributed (atom [])
+        tp (tallyport/mock-tallyport (atom {}) #(swap! distributed conj %))]
+    [s (op/build s {:tallyport tp}) distributed]))
+
 (defn- ctx [phase] {:phase phase})
 
 (defn- run [actor tid req phase]
@@ -183,6 +196,25 @@
     (is (= :hold (get-in res [:state :disposition])))
     (is (= :phase-disabled (-> (store/ledger s) last :phase-reason)))))
 
+;; ── fail-closed on missing/unrecognized :phase: a lost/garbled phase must
+;; resolve to phase 0's (ingest-only) ruleset, the LEAST permissive one, never
+;; `phase/default-phase` (3, the MOST permissive — auto-commits :tally/draft).
+;; Both "no :phase key at all" and "a :phase not in ichiran.phase/phases"
+;; must HOLD (:phase-disabled), exactly like an explicit phase 0 would, and
+;; must NOT auto-commit like an explicit (or previously-defaulted) phase 3. ──
+
+(deftest phase-fails-closed-on-missing-or-unrecognized-phase
+  (doseq [[case-label context] [["no :phase key at all" {}]
+                                ["an out-of-range :phase (not a key of ichiran.phase/phases)" {:phase 99}]]]
+    (testing (str case-label " must NOT silently behave like phase 3's auto-commit ruleset")
+      (let [[s actor] (fresh)
+            res (g/run* actor {:request {:op :tally/draft :artifact "act-finance-q3"} :context context}
+                        {:thread-id (str "phase-fail-closed-" (hash context))})]
+        (is (= :hold (get-in res [:state :disposition])))
+        (is (= :phase-disabled (-> (store/ledger s) last :phase-reason)))
+        (is (nil? (store/draft-of s "act-finance-q3"))
+            "no draft was ever committed — the missing/unrecognized phase did not auto-commit")))))
+
 (deftest publish-always-requires-human
   (testing "publishing (:tally/publish) is high-stakes at every assess-enabled phase"
     (doseq [phase [1 2 3]]
@@ -243,6 +275,50 @@
         (is (= :hold (get-in r1 [:state :disposition])))
         (is (some #{:tenant-mismatch} (-> (store/ledger s) last :basis)))
         (is (not= :published (:status (store/draft-of s "act-finance-q3"))))))))
+
+;; ── delivery must use the GOVERNED content, never a stale commit-time store
+;; re-read: unlike the recheck tests above (which mutate the store BEFORE the
+;; :tally/publish request even starts, so ichiran.governor/check's own
+;; govern-time recheck catches the drift), this simulates a mutation landing
+;; WHILE the publish approval sits in the :request-approval interrupt — i.e.
+;; strictly AFTER :advise/:govern already ran and validated the ORIGINAL
+;; content. Per langgraph.graph/run*'s resume semantics, resuming after human
+;; approval jumps straight from :request-approval to :commit — :advise/
+;; :govern never re-run — so a commit-time `store/draft-of` re-read would
+;; blindly deliver whatever is CURRENTLY stored, bypassing everything the
+;; governor validated for this approval. ──
+
+(deftest publish-uses-governed-content-not-a-stale-commit-time-store-read
+  (testing "TOCTOU: mutating the stored draft's content WHILE a publish approval is
+            pending (e.g. a legitimate concurrent :tally/draft revision on the same
+            artifact) must not let a since-injected unredacted sensitive-cite draft
+            slip into what actually gets delivered — the human approved the
+            ORIGINALLY governed content, so that is what tallyport/publish! must
+            receive, not a fresh store re-read at commit time"
+    (let [[s actor distributed] (fresh-with-tallyport)
+          _ (run actor "toctou-draft" {:op :tally/draft :artifact "act-finance-q3"} 3)
+          governed-content (:content (store/draft-of s "act-finance-q3"))
+          r1 (run actor "toctou-pub" {:op :tally/publish :artifact "act-finance-q3"
+                                      :target "cfo@example.com"} 3)]
+      (is (some? governed-content) "sanity: the drafted content is real, not nil")
+      (is (= :interrupted (:status r1)) "publishing always interrupts for human sign-off")
+      ;; Simulate a concurrent draft mutation landing on the SAME artifact while this
+      ;; publish approval sits in the interrupt queue — swap in tampered content that
+      ;; cites unredacted financial data (exactly what the redaction-required
+      ;; invariant exists to keep out of delivery).
+      (store/record-datom! s {:kind :draft :id "act-finance-q3"
+                              :value {:content {:tampered? true}
+                                      :cites [:financial] :redactions []}})
+      ;; Approve the ORIGINAL (pre-mutation) publish request.
+      (let [r2 (g/run* actor {:approval {:status :approved :by "cfo-alice"}}
+                       {:thread-id "toctou-pub" :resume? true})]
+        (is (= :commit (get-in r2 [:state :disposition]))
+            "approving a clean, already-governed publish still commits")
+        (is (= 1 (count @distributed)) "publish! ran exactly once")
+        (is (= governed-content (:content (first @distributed)))
+            "publish! delivered the ORIGINALLY governed content, unaffected by the later mutation")
+        (is (not= {:tampered? true} (:content (first @distributed)))
+            "the since-injected tampered content never reaches delivery")))))
 
 (deftest reject-signoff-holds
   (testing "a human rejection of a publish records a hold, not a delivery"

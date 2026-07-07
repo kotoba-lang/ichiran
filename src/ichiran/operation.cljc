@@ -42,9 +42,14 @@
 
 (defn- pending-record
   "The store record a clean/approved assess op commits. :tally/draft stores
-  the proposal itself (verbatim sheets EDN content); :tally/publish only
-  flips the already-stored draft's :status (the delivery is the EFFECT,
-  tracked separately by commit-effects!, not new draft content)."
+  the proposal itself (verbatim sheets EDN content); :tally/publish flips the
+  already-stored draft's :status AND carries forward the proposal's :content
+  — the same content ichiran.governor/check already vetted for THIS request
+  at govern-time (before :request-approval's human-in-the-loop interrupt) —
+  so commit-effects! can deliver that exact, already-checkpointed content
+  instead of re-reading (and potentially re-trusting a since-mutated) store
+  draft at commit time (TOCTOU fix, mirroring koyomi's :event/share /
+  shoko's :file/share)."
   [op proposal subj]
   (case op
     :tally/draft
@@ -56,7 +61,7 @@
                           :tenant (:tenant proposal)
                           :status :proposed})}
     :tally/publish
-    {:kind :draft :id subj :value {:status :published}}))
+    {:kind :draft :id subj :value {:status :published :content (:content proposal)}}))
 
 (defn- commit-effects!
   "Perform the op-specific EXTERNAL effect BEFORE anything is written to the
@@ -64,11 +69,24 @@
   no store mutation and no :committed ledger fact happen, so the store never
   durably claims a publish that didn't actually occur.
 
-  `:tally/draft` reads its content from `record` (the commit about to be
-  written), NOT from the store — the store doesn't have it yet at this
-  point. `:tally/publish` reads the draft to deliver from the store, which is
-  safe: that content was already committed in an EARLIER run (`:tally/draft`),
-  not this one.
+  Both branches read content from `record` (the commit about to be written),
+  NEVER from a fresh `store/draft-of` re-read:
+
+  `:tally/draft` reads its content from `record` because the store doesn't
+  have it yet at this point anyway.
+
+  `:tally/publish` delivers `record`'s `:value :content`, which
+  `pending-record` carried forward verbatim from the `proposal` channel —
+  the exact content `ichiran.governor/check` already vetted for THIS
+  approval request back at govern-time (before `:request-approval`'s
+  human-in-the-loop interrupt). A fresh `(store/draft-of store artifact)`
+  re-read here would be a TOCTOU: the human approved what they reviewed at
+  govern-time, but if the stored draft was mutated while the approval sat in
+  the interrupt (e.g. a legitimate concurrent `:tally/draft` revision landing
+  on the same artifact), a re-read would deliver whatever is CURRENTLY in the
+  store — content that was never re-governed. Using the checkpointed
+  `record` content instead means the delivery is always exactly what was
+  approved, unaffected by any later mutation.
 
   Returns a map of extra store facts to merge in on success (currently just
   `:tally/draft`'s returned :branch), or nil."
@@ -79,8 +97,8 @@
           {:keys [branch]} (tallyport/propose-revision! tallyport art (get-in record [:value :content]))]
       (when branch {:kind :draft :id artifact :value {:branch branch}}))
     :tally/publish
-    (let [art (store/artifact store artifact) d (store/draft-of store artifact)]
-      (tallyport/publish! tallyport art target d)
+    (let [art (store/artifact store artifact)]
+      (tallyport/publish! tallyport art target {:content (get-in record [:value :content])})
       nil)
     nil))
 
@@ -128,7 +146,11 @@
       (g/add-node :decide
         (fn [{:keys [request context proposal verdict]}]
           (let [base (phase/verdict->disposition verdict)
-                ph   (:phase context phase/default-phase)
+                ;; A missing :phase in context must fail closed to the MOST
+                ;; conservative phase (0, ingest-only), not the MOST
+                ;; permissive `phase/default-phase` (3) — see
+                ;; ichiran.phase/conservative-phase.
+                ph   (:phase context phase/conservative-phase)
                 {:keys [disposition reason]} (phase/gate ph request base)
                 subj (subject request)]
             (case disposition

@@ -29,15 +29,30 @@
 
 (def default-phase 3)
 
+(def conservative-phase
+  "Fail-closed floor for a missing/unrecognized :phase. `default-phase` (3)
+  is the MOST permissive ruleset (auto-commits :tally/draft); a phase value
+  that is absent from `context` or not a key of `phases` (garbled config, a
+  forgotten context, a not-yet-wired value like 99, …) must never silently
+  fall back to that most-permissive ruleset — it must fail closed to the
+  LEAST permissive one instead, phase 0 (ingest-only: :assess is empty, so
+  every assess op holds with :phase-disabled). See `gate` below and
+  ichiran.operation's `ph` binding, both of which use this, never
+  `default-phase`, as their fallback."
+  0)
+
 (defn record-op? [op] (contains? record-ops op))
 
 (defn gate
   "Adjust an assess op's governor disposition for the rollout phase.
   Returns {:disposition kw :reason kw|nil}. `:tally/publish` is never in
   :auto, so it always escalates; the governor's high-stakes flag already
-  forces this too — phase and governor agree by construction."
+  forces this too — phase and governor agree by construction. A `phase` not
+  present in `phases` (unrecognized/garbled) falls back to
+  `conservative-phase`'s ruleset, NOT `default-phase`'s — fail closed, not
+  open."
   [phase {:keys [op]} disposition]
-  (let [{:keys [assess auto]} (get phases phase (get phases default-phase))]
+  (let [{:keys [assess auto]} (get phases phase (get phases conservative-phase))]
     (cond
       (= :hold disposition)        {:disposition :hold :reason nil}
       (not (contains? assess op))  {:disposition :hold :reason :phase-disabled}
