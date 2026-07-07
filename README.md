@@ -76,6 +76,7 @@ phase-0 disables drafting entirely → prints the tally-generation audit ledger
 | `src/ichiran/phase.cljc` | **Phase 0→3** — ingest-only → assisted → assisted-draft → supervised (publish always human) |
 | `src/ichiran/operation.cljc` | **TallyActor** — langgraph StateGraph; ingest vs assess flows |
 | `src/ichiran/tallyport.cljc` | **TallyTarget** port (`fetch-workbook`/`propose-revision!`/`publish!`) + `mock-tallyport` (best-effort `sheets.wire` Transit export + injected Distributor fn) |
+| `src/ichiran/resend.clj` | **opt-in REAL Distributor** — `resend-tallyport` actually emails the governed workbook via Resend (`kotoba-lang/mailer`), same provider `cloud-itonami.mail` uses. `mock-tallyport` stays the default. |
 | `src/ichiran/cacao.clj` | agent-side **CACAO self-mint** (JVM Ed25519 + did:key + CBOR; per-actor key) |
 | `src/ichiran/kotoba.clj` | wire `DatomicStore` to a kotoba-server pod (kotobase.net XRPC) |
 | `src/ichiran/query.cljc` | pure status lookups (`draft-status`/`published?`) for callers that don't want to run the actor |
@@ -90,8 +91,26 @@ no network/creds. `publish!` exports the workbook via `kotoba-lang/sheets`'s
 `sheets.wire/workbook-envelope` (Kotoba Transit JSON) — best-effort; any
 encoding failure degrades to no envelope bytes rather than throwing — and
 always calls an injected `:distribute-fn` once per delivery. A live
-email/Slack/BI-tool Distributor is **not shipped here** (ADR Consequences) —
-inject your own.
+BI-tool Distributor is still **not shipped here** — inject your own (a
+Slack scaffold exists, see 'Slack Distributor (owner setup required)'
+below, and a live-tested Resend email Distributor is shipped, see next).
+
+A REAL email Distributor for Resend IS shipped, opt-in only:
+`ichiran.resend/resend-tallyport` (`src/ichiran/resend.clj`, JVM-only, same
+`java.net.http` transport shape as `cloud-itonami.mail`). `publish!` emails
+the recipient (`target`) a human-readable text summary of the workbook's
+tabs/cells, with the `sheets.wire` Transit JSON envelope attached
+(`kotoba-lang/sheets` has no CSV/xlsx export); on success the Resend message
+id lands on the artifact's `:draft` record as `:tool "resend:<id>"` (the
+ichiran analog of `cloud_itonami.mail`'s `:itonami.effect/tool` pattern)
+plus a `:delivered` ledger fact. `mock-tallyport` stays the actor's default
+either way — this is only reached if a caller explicitly constructs and
+injects it:
+
+```clojure
+(require '[ichiran.resend :as resend])
+(op/build store {:tallyport (resend/resend-tallyport store {:from "ops@example.com"})})
+```
 
 ```clojure
 ;; actor issues its own key, self-mints CACAO (same pattern as kekkai/teian/koyomi)
@@ -172,10 +191,11 @@ Runnable + fully tested. Store is `:db-api` driven — `MemStore ≡
 DatomicStore(langchain.db) ≡ kotoba-store(kotobase.net)` on the same
 contract, with a per-id-upsert `seed!` from the start (never a wholesale
 `:artifacts` replace). CACAO self-issuance is offline-verified.
-`TallyTarget`'s Transit export path is structurally complete but
-**live-untested** — same known state kekkai/teian/koyomi ship in;
+`TallyTarget`'s Transit export path is structurally complete. The Resend
+email Distributor (`ichiran.resend/resend-tallyport`) has been **live-tested
+end-to-end** (a real Resend message id came back for a real send).
 `ichiran.tallyport/slack-tallyport` is a real, request-shape-tested (never
 live-called) opt-in Distributor scaffold — see 'Slack Distributor (owner
 setup required)' above for what's still needed before it's usable. Any
-other Distributor (email/BI-tool/etc) is not shipped here at all (inject
-your own).
+other Distributor (BI-tool/etc) is not shipped here at all (inject your
+own).

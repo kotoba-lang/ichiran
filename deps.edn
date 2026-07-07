@@ -17,7 +17,12 @@
         ;; model — it holds kotoba-lang/sheets content verbatim as draft
         ;; :content (ADR-2607062030).
         io.github.kotoba-lang/sheets
-        {:local/root "../sheets"}}
+        {:local/root "../sheets"}
+        ;; opt-in REAL Distributor (src/ichiran/resend.clj) — provider request
+        ;; adapter for Resend/SMTP/SES, same copy cloud-itonami's mail
+        ;; capability already depends on (ADR-2607062030 addendum).
+        io.github.kotoba-lang/mailer
+        {:local/root "../mailer"}}
  :aliases
  {;; offline workspace dev — pin transitive langchain to local checkout
   :dev {:override-deps
