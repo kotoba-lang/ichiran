@@ -114,6 +114,48 @@ An unparseable/hallucinating LLM response falls to confidence 0 / noop, and
 **TallyGovernor always hold/escalates** it (no path from a malformed LLM
 response to an actual publish).
 
+## Slack Distributor (owner setup required)
+
+`ichiran.tallyport/slack-tallyport` is a real Slack `chat.postMessage`
+Distributor — an opt-in `distribute-fn` for `mock-tallyport`, alongside
+(not replacing) the default no-op and a Resend-email Distributor. It
+posts a short text notification (report title + a note a tally was
+published) to a channel; it does **not** attach the actual Transit
+envelope bytes — that would need Slack's separate `files.upload`
+multipart endpoint, out of scope here (a real, if plain, notification
+beats a half-implemented file upload). **Nothing in this repo makes a
+live Slack API call** — there is no Slack app/token yet; that's the below,
+owner-side.
+
+Before this is usable, the owner needs to:
+
+1. Go to <https://api.slack.com/apps> → **Create New App** → **From
+   scratch**. Name it something like `kotoba-lang-ichiran-notifier` (one
+   app per actor keeps scopes/audit narrow; a single shared app across
+   teian/koyomi/ichiran is also fine if you'd rather manage one integration
+   — either way, note the choice in the app's description for whoever
+   rotates the token later).
+2. Under **OAuth & Permissions → Bot Token Scopes**, add `chat:write`
+   (minimum required for `chat.postMessage`). Add `chat:write.public` too
+   if you want the bot to post into channels it hasn't been explicitly
+   invited to.
+3. **Install to Workspace**, then copy the **Bot User OAuth Token**
+   (`xoxb-...`).
+4. Invite the bot to whichever channel should receive tally-publish
+   notifications (`/invite @your-bot-name` in that channel) — or skip this
+   if you added `chat:write.public` above.
+5. Inject the token + channel id into the constructor:
+   ```clojure
+   (require '[ichiran.tallyport :as tallyport])
+   (tallyport/mock-tallyport (atom {})
+     (tallyport/slack-tallyport {:token "xoxb-..." :channel "C0123456"}))
+   ```
+   In production, resolve the token the way this ecosystem resolves other
+   provider credentials — env var first, falling back to a secrets store
+   (see `cloud-itonami/scripts/mail-creds.bb` for the pattern this should
+   eventually follow once a real Slack app exists; there is no vault entry
+   for it yet, so don't invent one).
+
 ## cloud-itonami consumption
 
 See `90-docs/adr/2607062030-kotoba-lang-ichiran-tally-scaffold.md`. Add
@@ -131,6 +173,9 @@ DatomicStore(langchain.db) ≡ kotoba-store(kotobase.net)` on the same
 contract, with a per-id-upsert `seed!` from the start (never a wholesale
 `:artifacts` replace). CACAO self-issuance is offline-verified.
 `TallyTarget`'s Transit export path is structurally complete but
-**live-untested** — same known state kekkai/teian/koyomi ship in; a real
-Distributor (email/Slack/BI-tool/etc) is not shipped here at all (inject your
-own).
+**live-untested** — same known state kekkai/teian/koyomi ship in;
+`ichiran.tallyport/slack-tallyport` is a real, request-shape-tested (never
+live-called) opt-in Distributor scaffold — see 'Slack Distributor (owner
+setup required)' above for what's still needed before it's usable. Any
+other Distributor (email/BI-tool/etc) is not shipped here at all (inject
+your own).
