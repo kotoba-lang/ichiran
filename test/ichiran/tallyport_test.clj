@@ -8,7 +8,8 @@
   (e.g. tayori.channel.slack)."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [ichiran.tallyport :as tallyport]))
+            [ichiran.tallyport :as tallyport]
+            [kotoba.lang.json :as json]))
 
 (defn- capturing-http-fn [captured]
   (fn [req]
@@ -72,3 +73,37 @@
       (tallyport/publish! tt {:id "act-5"} "finance@example.com" {:content {:sheets/title "Delivered Report"}})
       (is (= {:sheets/title "Delivered Report"} (get @delivered "act-5")))
       (is (some? @captured) "the injected distribute-fn was actually called"))))
+
+(deftest slack-tallyport-escapes-c0-control-chars-in-json-body
+  (testing "a title containing raw C0 control chars (e.g. from pasted terminal output) still
+            produces a valid JSON body -- RFC 8259 requires escaping ALL of U+0000-U+001F,
+            not just the ones with named shorthand escapes like \\n/\\t"
+    (let [captured (atom nil)
+          distribute-fn (tallyport/slack-tallyport {:token "xoxb-test-token" :channel "C0123456"
+                                                     :http-fn (capturing-http-fn captured)})
+          title (str "Report " (char 7) " ready " (char 31) " now")]
+      (distribute-fn {:activity "act-6" :target "finance@example.com"
+                      :content {:sheets/title title} :envelope? true})
+      (let [body (:body @captured)
+            decoded (json/decode body)]
+        (is (not (str/includes? body (str (char 7))))
+            "the raw bell character must not appear unescaped in the JSON body")
+        (is (str/includes? body "\\u0007"))
+        (is (str/includes? body "\\u001f"))
+        (is (str/includes? (get decoded "text") title)
+            "a real JSON parser round-trips the escaped control chars back to the originals")))))
+
+(deftest slack-tallyport-json-body-round-trips-through-a-real-json-parser
+  (testing "the whole body is well-formed JSON regardless of control chars, CRLF, tabs,
+            backslashes, or quotes in the title"
+    (let [captured (atom nil)
+          distribute-fn (tallyport/slack-tallyport {:token "xoxb-test-token" :channel "C0123456"
+                                                     :http-fn (capturing-http-fn captured)})
+          title (str "Line1" (char 13) (char 10) "Line2" (char 9) "tabbed"
+                     (char 92) "backslash" (char 34) "quote" (char 1) "soh")]
+      (distribute-fn {:activity "act-7" :target "finance@example.com"
+                      :content {:sheets/title title} :envelope? true})
+      (let [decoded (json/decode (:body @captured))]
+        (is (= "C0123456" (get decoded "channel")))
+        (is (str/includes? (get decoded "text") "Line1\nLine2\ttabbed\\backslash\"quote")
+            "decode() itself un-escaping back to the raw chars is the proof the body was valid JSON")))))
