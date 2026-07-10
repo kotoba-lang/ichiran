@@ -41,16 +41,26 @@
 (defn- subject [{:keys [artifact]}] artifact)
 
 (defn- pending-record
-  "The store record a clean/approved assess op commits. :tally/draft stores
-  the proposal itself (verbatim sheets EDN content); :tally/publish flips the
-  already-stored draft's :status AND carries forward the proposal's :content
-  — the same content ichiran.governor/check already vetted for THIS request
-  at govern-time (before :request-approval's human-in-the-loop interrupt) —
-  so commit-effects! can deliver that exact, already-checkpointed content
-  instead of re-reading (and potentially re-trusting a since-mutated) store
-  draft at commit time (TOCTOU fix, mirroring koyomi's :event/share /
+  "The store record a clean/approved assess op commits.
+
+  :tally/draft stores the proposal itself (verbatim sheets EDN content) --
+  proposal IS what governor/check validated for this op, so it's safe to
+  carry forward directly.
+
+  :tally/publish flips the STORE'S OWN draft (`verdict`'s :checked-draft --
+  the exact value governor/check re-fetched from the store and validated at
+  govern-time for THIS request) to :published. It deliberately does NOT use
+  `proposal`: for :tally/publish, governor/check's whole point is to
+  distrust proposal's forwarded :cites/:redactions/:tenant/:content and
+  recheck the store's ground truth instead (see governor.cljc) — delivering
+  from `proposal` here would commit content the redaction/tenant-isolation
+  recheck never actually validated. Using :checked-draft still avoids the
+  TOCTOU a fresh re-read at commit-time would introduce: it's the SAME store
+  snapshot governor/check already vetted at govern-time, carried forward
+  through the checkpointed `verdict` channel across the human-approval
+  interrupt, not read again later (mirroring koyomi's :event/share /
   shoko's :file/share)."
-  [op proposal subj]
+  [op proposal subj verdict]
   (case op
     :tally/draft
     {:kind :draft :id subj
@@ -61,7 +71,8 @@
                           :tenant (:tenant proposal)
                           :status :proposed})}
     :tally/publish
-    {:kind :draft :id subj :value {:status :published :content (:content proposal)}}))
+    {:kind :draft :id subj
+     :value {:status :published :content (:content (:checked-draft verdict))}}))
 
 (defn- commit-effects!
   "Perform the op-specific EXTERNAL effect BEFORE anything is written to the
@@ -76,17 +87,17 @@
   have it yet at this point anyway.
 
   `:tally/publish` delivers `record`'s `:value :content`, which
-  `pending-record` carried forward verbatim from the `proposal` channel —
-  the exact content `ichiran.governor/check` already vetted for THIS
+  `pending-record` built from `verdict`'s `:checked-draft` — the exact store
+  draft `ichiran.governor/check` already fetched AND vetted for THIS
   approval request back at govern-time (before `:request-approval`'s
-  human-in-the-loop interrupt). A fresh `(store/draft-of store artifact)`
-  re-read here would be a TOCTOU: the human approved what they reviewed at
-  govern-time, but if the stored draft was mutated while the approval sat in
-  the interrupt (e.g. a legitimate concurrent `:tally/draft` revision landing
-  on the same artifact), a re-read would deliver whatever is CURRENTLY in the
-  store — content that was never re-governed. Using the checkpointed
-  `record` content instead means the delivery is always exactly what was
-  approved, unaffected by any later mutation.
+  human-in-the-loop interrupt), not `proposal` (which the recheck exists
+  specifically to NOT trust) and not a fresh `(store/draft-of store
+  artifact)` re-read here (which would be a TOCTOU: the human approved what
+  the governor checked at govern-time, but if the stored draft was mutated
+  while the approval sat in the interrupt, a re-read would deliver whatever
+  is CURRENTLY in the store, never re-governed). Using the checkpointed
+  `:checked-draft` content instead means the delivery is always exactly what
+  was vetted, unaffected by any later mutation.
 
   Returns a map of extra store facts to merge in on success (currently just
   `:tally/draft`'s returned :branch), or nil."
@@ -166,14 +177,14 @@
                         :recommendation (:recommendation proposal)
                         :phase ph :confidence (:confidence verdict)}]}
               :commit
-              {:disposition :commit :record (pending-record (:op request) proposal subj)}))))
+              {:disposition :commit :record (pending-record (:op request) proposal subj verdict)}))))
 
       (g/add-node :request-approval
-        (fn [{:keys [request proposal approval]}]
+        (fn [{:keys [request proposal approval verdict]}]
           (let [subj (subject request)]
             (if (= :approved (:status approval))
               {:disposition :commit
-               :record (update (pending-record (:op request) proposal subj)
+               :record (update (pending-record (:op request) proposal subj verdict)
                                :value assoc :approved-by (:by approval))
                :audit [{:t :human-signoff :op (:op request) :subject subj
                         :by (:by approval) :recommendation (:recommendation proposal)}]}

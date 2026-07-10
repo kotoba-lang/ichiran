@@ -104,13 +104,21 @@
 
 (defn check
   "Censors a tally-LLM proposal for an ichiran op. Returns
-   {:ok? :violations :confidence :hard? :escalate? :high-stakes?}.
+   {:ok? :violations :confidence :hard? :escalate? :high-stakes? :checked-draft}.
 
    Hard violations force HOLD and cannot be overridden. Publishing a tally
-   (`:tally/publish`) is high-stakes → human sign-off even when clean."
+   (`:tally/publish`) is high-stakes → human sign-off even when clean.
+
+   `:checked-draft` is the exact value this check validated for
+   `:tally/publish` (the store's `draft-of`, fetched fresh here) -- nil for
+   other ops. The caller MUST deliver this value, not `proposal`: `proposal`
+   is precisely what this recheck exists to NOT trust for :tally/publish (see
+   below), so building the delivered record from `proposal` instead of
+   `:checked-draft` would validate one map and deliver a different one."
   [request proposal st]
   (let [op          (:op request)
         artifact-id (:artifact request)
+        current-draft (when (= :tally/publish op) (store/draft-of st artifact-id))
         hard (vec (case op
                     :tally/draft
                     (concat (missing-subject-violations st artifact-id)
@@ -123,22 +131,22 @@
                     ;; cites/redactions/tenant — the whole point of the
                     ;; recheck is to catch drift the untrusted advisor might
                     ;; not faithfully carry forward.
-                    (let [current-draft (store/draft-of st artifact-id)]
-                      (concat (missing-subject-violations st artifact-id)
-                              (missing-draft-violations st artifact-id)
-                              (when current-draft (redaction-violations current-draft))
-                              (when current-draft (tenant-violations st artifact-id current-draft))))
+                    (concat (missing-subject-violations st artifact-id)
+                            (missing-draft-violations st artifact-id)
+                            (when current-draft (redaction-violations current-draft))
+                            (when current-draft (tenant-violations st artifact-id current-draft)))
                     [{:rule :unrecognized-op :detail (str "未対応op: " op)}]))
         conf    (:confidence proposal 0.0)
         low?    (< conf confidence-floor)
         stakes? (= :tally/publish op)
         hard?   (boolean (seq hard))]
-    {:ok?          (and (not hard?) (not low?) (not stakes?))
-     :violations   hard
-     :confidence   conf
-     :hard?        hard?
-     :escalate?    (and (not hard?) (or low? stakes?))
-     :high-stakes? stakes?}))
+    {:ok?           (and (not hard?) (not low?) (not stakes?))
+     :violations    hard
+     :confidence    conf
+     :hard?         hard?
+     :escalate?     (and (not hard?) (or low? stakes?))
+     :high-stakes?  stakes?
+     :checked-draft current-draft}))
 
 (defn hold-fact [request verdict]
   {:t :ichiran-hold :op (:op request) :subject (:artifact request)

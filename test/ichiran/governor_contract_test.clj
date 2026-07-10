@@ -320,6 +320,37 @@
         (is (not= {:tampered? true} (:content (first @distributed)))
             "the since-injected tampered content never reaches delivery")))))
 
+(deftest publish-delivers-the-governed-store-draft-not-a-divergent-proposal
+  (testing "governor/check's :tally/publish recheck validates the STORE'S draft
+           (see governor.cljc), never `proposal` -- so the delivered content
+           must come from that same checked draft, not from a divergent
+           proposal the recheck never actually validated. Otherwise the
+           redaction/tenant-isolation recheck would validate one map while
+           the system commits and delivers a different, unvalidated one."
+    (let [[s clean-actor distributed] (fresh-with-tallyport)
+          _ (run clean-actor "gov-draft" {:op :tally/draft :artifact "act-finance-q3"} 3)
+          clean-content (:content (store/draft-of s "act-finance-q3"))
+          ;; adversarial advisor: at :tally/publish time, proposes :content
+          ;; that diverges entirely from the already-committed clean draft
+          bad-adv (reify coordllm/Advisor
+                    (-advise [_ _ _] {:recommendation :publish :effect :published
+                                      :content {:leaked "unredacted-financial-data"}
+                                      :cites [] :redactions [] :tenant "gftdcojp/cloud-itonami"
+                                      :summary "x" :rationale "x" :confidence 0.95}))
+          tp (tallyport/mock-tallyport (atom {}) #(swap! distributed conj %))
+          adversarial-actor (op/build s {:advisor bad-adv :tallyport tp})
+          r1 (run adversarial-actor "gov-pub" {:op :tally/publish :artifact "act-finance-q3"
+                                               :target "cfo@example.com"} 3)]
+      (is (= :interrupted (:status r1)) "still requires human sign-off")
+      (let [r2 (g/run* adversarial-actor {:approval {:status :approved :by "cfo-alice"}}
+                       {:thread-id "gov-pub" :resume? true})]
+        (is (= :commit (get-in r2 [:state :disposition])))
+        (is (= 1 (count @distributed)) "publish! ran exactly once")
+        (is (= clean-content (:content (last @distributed)))
+            "delivered content is the GOVERNED store draft, not the adversarial proposal")
+        (is (not= {:leaked "unredacted-financial-data"} (:content (last @distributed)))
+            "the proposal's forged content never reaches delivery")))))
+
 (deftest reject-signoff-holds
   (testing "a human rejection of a publish records a hold, not a delivery"
     (let [[s actor] (fresh)
