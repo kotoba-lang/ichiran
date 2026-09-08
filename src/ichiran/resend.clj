@@ -42,7 +42,7 @@
   `ichiran.operation`'s shared StateGraph commit path — the mock default's
   behavior (and its tests) are completely unaffected either way; only a
   caller that actually injects `resend-tallyport` gets these extra facts."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [kotoba.lang.json :as json]
             [mail.message :as message]
             [mailer.core :as mailer]
