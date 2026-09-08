@@ -7,7 +7,7 @@
   per-actor key model is the ichiran/teian/kekkai/tayori/koyomi analog — the
   key IS the identity."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [ichiran.cacao :as c])
   (:import [java.util Base64]
            [java.security Signature]))

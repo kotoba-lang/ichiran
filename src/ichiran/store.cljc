@@ -30,7 +30,7 @@
   `seed-upserts-per-id-does-not-wipe-existing-artifacts`)."
   (:require #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [langchain.db :as d]
             [ichiran.model :as model]))
 

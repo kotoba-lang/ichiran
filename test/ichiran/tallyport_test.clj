@@ -7,7 +7,7 @@
   used across this workspace's other real-binding-but-untested clients
   (e.g. tayori.channel.slack)."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [ichiran.tallyport :as tallyport]
             [kotoba.lang.json :as json]))
 

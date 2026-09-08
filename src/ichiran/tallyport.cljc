@@ -27,7 +27,7 @@
   still has to do (register a Slack app, obtain a bot token) before it is
   usable; no live Slack call is made anywhere in this repo, including its
   test suite."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [sheets.wire :as wire]))
 
 (defprotocol TallyTarget
