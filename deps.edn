@@ -18,7 +18,7 @@
         {:sha "fdcefb9f1b83461fee54d04b63e374fa301ee847"}
         io.github.kotoba-lang/ipns
         {:sha "f2563eb1cb010c96f6dec1dfbd468fac93367498"}
-        ;; pure-Clojure encode/decode ichiran.resend uses directly (src/ichiran/resend.clj) —
+        ;; pure-Clojure encode/decode ichiran.resend uses directly (src/ichiran/resend.cljk) —
         ;; was missing here even though resend.clj `(:require [kotoba.lang.json ...])`,
         ;; which made the whole test suite fail to load (ClassNotFoundException on
         ;; kotoba/lang/json) rather than just resend's own tests.
@@ -30,7 +30,7 @@
         io.github.kotoba-lang/sheets
         {:git/url "https://github.com/kotoba-lang/sheets.git"
                                      :git/sha "e5f4192863b79a8f8db4bcafa14e8ba46d2b719b"}
-        ;; opt-in REAL Distributor (src/ichiran/resend.clj) — provider request
+        ;; opt-in REAL Distributor (src/ichiran/resend.cljk) — provider request
         ;; adapter for Resend/SMTP/SES, same copy cloud-itonami's mail
         ;; capability already depends on (ADR-2607062030 addendum).
         io.github.kotoba-lang/mailer

@@ -91,7 +91,7 @@ SOFT: confidence floor(<0.6) → escalate。
   点と publish 時点の間に draft の内容が（governor を経由しない別経路で）
   ドリフトしていても、publish 直前にもう一度捕まえる（TOCTOU 対策。
   ADR-2607062030 amendment: teian の `:deck/publish` レビューで見つかった
-  ギャップの教訓を最初から実装 — `test/ichiran/governor_contract_test.clj`
+  ギャップの教訓を最初から実装 — `test/ichiran/governor_contract_test.cljk`
   の `publish-recheck-catches-post-draft-redaction-drift`/
   `...-tenant-drift` で検証)。
 

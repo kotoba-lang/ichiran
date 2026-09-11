@@ -26,7 +26,7 @@
   artifact already seeded earlier. Both MemStore and DatomicStore implement
   this identically from the start (ADR-2607062030 amendment: this is the bug
   class teian's `MemStore.seed!` originally had and later fixed — ichiran
-  never has it in the first place, see test/ichiran/store_contract_test.clj's
+  never has it in the first place, see test/ichiran/store_contract_test.cljk's
   `seed-upserts-per-id-does-not-wipe-existing-artifacts`)."
   (:require #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
