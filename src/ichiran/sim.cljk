@@ -6,7 +6,7 @@
     publish act-finance-q3 publishing is always high-stakes → human sign-off → mock-tallyport delivers
     phase 0             draft in ingest-only phase → held (phase-disabled)
 
-  Run: clojure -M:dev:run"
+  Run: kbb -M:dev:run"
   (:require [langgraph.graph :as g]
             [ichiran.store :as store]
             [ichiran.tallyport :as tallyport]

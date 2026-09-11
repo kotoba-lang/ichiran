@@ -40,7 +40,7 @@
  {;; offline workspace dev — pin transitive langchain to local checkout
   :dev {:override-deps
         {io.github.kotoba-lang/langchain {:local/root "../langchain"}}}
-  ;; clojure -M:dev:run  → drive a tally workbook draft/publish through one TallyActor
+  ;; kbb -M:dev:run  → drive a tally workbook draft/publish through one TallyActor
   :run {:main-opts ["-m" "ichiran.sim"]}
   :test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner
