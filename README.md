@@ -68,20 +68,20 @@ phase-0 disables drafting entirely → prints the tally-generation audit ledger
 
 | File | Role |
 |---|---|
-| `src/ichiran/model.cljc` | pure **draft**/**artifact** data shapes — `content` is verbatim `kotoba-lang/sheets` EDN, never ichiran's own representation |
-| `src/ichiran/store.cljc` | **Store** protocol — `MemStore` ‖ `DatomicStore` (`langchain.db`, swappable to Datomic Local / kotoba-server) + append-only **tally-generation audit ledger** |
-| `src/ichiran/policy.cljc` | pure checks (sensitive-cite redaction requirement · tenant mismatch) — shared by governor & tally-LLM, no I/O |
-| `src/ichiran/coordllm.cljc` | **tally-LLM Advisor** — `mock-advisor` ‖ `llm-advisor` (`langchain.model`); draft/publish proposals |
-| `src/ichiran/governor.cljc` | **TallyGovernor** — missing-subject (independent, unconditional) · no-actuation · redaction-required · tenant-isolation · high-stakes |
-| `src/ichiran/phase.cljc` | **Phase 0→3** — ingest-only → assisted → assisted-draft → supervised (publish always human) |
-| `src/ichiran/operation.cljc` | **TallyActor** — langgraph StateGraph; ingest vs assess flows |
-| `src/ichiran/tallyport.cljc` | **TallyTarget** port (`fetch-workbook`/`propose-revision!`/`publish!`) + `mock-tallyport` (best-effort `sheets.wire` Transit export + injected Distributor fn) |
-| `src/ichiran/resend.clj` | **opt-in REAL Distributor** — `resend-tallyport` actually emails the governed workbook via Resend (`kotoba-lang/mailer`), same provider `cloud-itonami.mail` uses. `mock-tallyport` stays the default. |
-| `src/ichiran/cacao.clj` | agent-side **CACAO self-mint** (JVM Ed25519 + did:key + CBOR; per-actor key) |
-| `src/ichiran/kotoba.clj` | wire `DatomicStore` to a kotoba-server pod (kotobase.net XRPC) |
-| `src/ichiran/query.cljc` | pure status lookups (`draft-status`/`published?`) for callers that don't want to run the actor |
-| `src/ichiran/sim.cljc` | demo driver |
-| `src/ichiran/cli.clj` | minimal JVM status-check entrypoint |
+| `src/ichiran/model.cljk` | pure **draft**/**artifact** data shapes — `content` is verbatim `kotoba-lang/sheets` EDN, never ichiran's own representation |
+| `src/ichiran/store.cljk` | **Store** protocol — `MemStore` ‖ `DatomicStore` (`langchain.db`, swappable to Datomic Local / kotoba-server) + append-only **tally-generation audit ledger** |
+| `src/ichiran/policy.cljk` | pure checks (sensitive-cite redaction requirement · tenant mismatch) — shared by governor & tally-LLM, no I/O |
+| `src/ichiran/coordllm.cljk` | **tally-LLM Advisor** — `mock-advisor` ‖ `llm-advisor` (`langchain.model`); draft/publish proposals |
+| `src/ichiran/governor.cljk` | **TallyGovernor** — missing-subject (independent, unconditional) · no-actuation · redaction-required · tenant-isolation · high-stakes |
+| `src/ichiran/phase.cljk` | **Phase 0→3** — ingest-only → assisted → assisted-draft → supervised (publish always human) |
+| `src/ichiran/operation.cljk` | **TallyActor** — langgraph StateGraph; ingest vs assess flows |
+| `src/ichiran/tallyport.cljk` | **TallyTarget** port (`fetch-workbook`/`propose-revision!`/`publish!`) + `mock-tallyport` (best-effort `sheets.wire` Transit export + injected Distributor fn) |
+| `src/ichiran/resend.cljk` | **opt-in REAL Distributor** — `resend-tallyport` actually emails the governed workbook via Resend (`kotoba-lang/mailer`), same provider `cloud-itonami.mail` uses. `mock-tallyport` stays the default. |
+| `src/ichiran/cacao.cljk` | agent-side **CACAO self-mint** (JVM Ed25519 + did:key + CBOR; per-actor key) |
+| `src/ichiran/kotoba.cljk` | wire `DatomicStore` to a kotoba-server pod (kotobase.net XRPC) |
+| `src/ichiran/query.cljk` | pure status lookups (`draft-status`/`published?`) for callers that don't want to run the actor |
+| `src/ichiran/sim.cljk` | demo driver |
+| `src/ichiran/cli.cljk` | minimal JVM status-check entrypoint |
 | `test/ichiran/*_test.clj` | propose-only contract · store parity (Mem≡Datomic) · CACAO |
 
 ## TallyTarget → real backend (injection)
@@ -96,7 +96,7 @@ Slack scaffold exists, see 'Slack Distributor (owner setup required)'
 below, and a live-tested Resend email Distributor is shipped, see next).
 
 A REAL email Distributor for Resend IS shipped, opt-in only:
-`ichiran.resend/resend-tallyport` (`src/ichiran/resend.clj`, JVM-only, same
+`ichiran.resend/resend-tallyport` (`src/ichiran/resend.cljk`, JVM-only, same
 `java.net.http` transport shape as `cloud-itonami.mail`). `publish!` emails
 the recipient (`target`) a human-readable text summary of the workbook's
 tabs/cells, with the `sheets.wire` Transit JSON envelope attached

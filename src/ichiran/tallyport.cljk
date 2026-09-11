@@ -75,7 +75,7 @@
 ;; ever needs the write side (`chat.postMessage`), not tayori's read side
 ;; (`conversations.history`) for reply-drafting. Untested against a live
 ;; workspace (no bot token exists yet — see README); the request-building
-;; itself is covered by test/ichiran/tallyport_test.clj with an injected
+;; itself is covered by test/ichiran/tallyport_test.cljk with an injected
 ;; fake :http-fn, never a real network call.
 
 #?(:clj
