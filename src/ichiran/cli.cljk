@@ -11,7 +11,7 @@
   <ledger.edn> holds the same shape as `ichiran.store/demo-data`'s :artifacts
   map plus an optional :drafts map (at minimum
   {:drafts {\"<artifact-id>\" {:status :published}}})."
-  (:require [clojure.edn :as edn]
+  (:require [kotoba.lang.edn :as edn]
             [ichiran.query :as query]
             [ichiran.store :as store]))
 

@@ -28,7 +28,7 @@
   class teian's `MemStore.seed!` originally had and later fixed — ichiran
   never has it in the first place, see test/ichiran/store_contract_test.cljk's
   `seed-upserts-per-id-does-not-wipe-existing-artifacts`)."
-  (:require #?(:clj  [clojure.edn :as edn]
+  (:require #?(:clj  [kotoba.lang.edn :as edn]
                :cljs [cljs.reader :as edn])
             [kotoba.lang.text :as str]
             [langchain.db :as d]
