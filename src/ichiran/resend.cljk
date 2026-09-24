@@ -42,22 +42,21 @@
   `ichiran.operation`'s shared StateGraph commit path — the mock default's
   behavior (and its tests) are completely unaffected either way; only a
   caller that actually injects `resend-tallyport` gets these extra facts."
-  (:require [kotoba.lang.text :as str]
+  (:require [kotoba.bytes :as kbytes] [kotoba.lang.text :as str]
             [kotoba.lang.json :as json]
             [mail.message :as message]
             [mailer.core :as mailer]
             [sheets.wire :as wire]
             [ichiran.kotoba :as kotoba]
             [ichiran.store :as store]
-            [ichiran.tallyport :as tallyport])
-  (:import [java.util Base64]))
+            [ichiran.tallyport :as tallyport]))
 
 (defn- resend-api-key []
   (or (System/getenv "RESEND_API_KEY")
       (throw (ex-info "RESEND_API_KEY is not set" {}))))
 
 (defn- b64-encode ^String [^String s]
-  (.encodeToString (Base64/getEncoder) (.getBytes s "UTF-8")))
+  (kbytes/base64-encode (kbytes/utf8-bytes s)))
 
 (defn- transit-attachment
   "Best-effort Transit JSON attachment (same defensive shape as
