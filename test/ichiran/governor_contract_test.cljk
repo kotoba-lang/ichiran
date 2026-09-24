@@ -4,7 +4,7 @@
   test. Invariant: the actor never publishes a tally workbook the
   TallyGovernor would reject, tally-LLM never actuates directly, and
   `:tally/publish` is always a human call regardless of phase."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [langgraph.graph :as g]
             [ichiran.store :as store]
             [ichiran.coordllm :as coordllm]

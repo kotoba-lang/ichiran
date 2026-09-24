@@ -1,5 +1,5 @@
 (ns ichiran.query-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [ichiran.query :as query]
             [ichiran.store :as store]))
 
