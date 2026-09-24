@@ -6,7 +6,7 @@
   that just captures the request map, the same fake-http-fn testing shape
   used across this workspace's other real-binding-but-untested clients
   (e.g. tayori.channel.slack)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.lang.text :as str]
             [ichiran.tallyport :as tallyport]
             [kotoba.lang.json :as json]))

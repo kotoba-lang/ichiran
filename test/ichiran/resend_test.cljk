@@ -5,7 +5,7 @@
   zero real network/credentials needed. The ONE live send this actor
   actually proves end-to-end delivery is a separate manual step (see the
   ADR/PR description), never part of this offline suite."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [ichiran.resend :as resend]
             [ichiran.store :as store]
             [ichiran.tallyport :as tallyport]
