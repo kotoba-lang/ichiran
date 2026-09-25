@@ -5,7 +5,7 @@
   zero real network/credentials needed. The ONE live send this actor
   actually proves end-to-end delivery is a separate manual step (see the
   ADR/PR description), never part of this offline suite."
-  (:require [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.test :refer [deftest is testing]]
             [ichiran.resend :as resend]
             [ichiran.store :as store]
             [ichiran.tallyport :as tallyport]
@@ -49,7 +49,7 @@
            :mail/parts [{:mail.part/content-type "text/plain; charset=utf-8" :mail.part/body "y"}]
            :mail/headers {} :mail/tags #{} :mail/metadata {}}]
     (is (thrown-with-msg?
-         clojure.lang.ExceptionInfo
+         kerror/ExceptionInfo
          #"Resend send failed"
          (resend/send-tally-email! m []
                                    {:http-fn (fn [_] {:status 422 :body "{\"message\":\"invalid\"}"})
@@ -57,7 +57,7 @@
 
 (deftest resend-tallyport-requires-a-from-address
   (is (thrown-with-msg?
-       clojure.lang.ExceptionInfo
+       kerror/ExceptionInfo
        #"requires :from"
        (resend/resend-tallyport (store/seed-db) {}))))
 
